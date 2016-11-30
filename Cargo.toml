@@ -5,3 +5,4 @@ authors = ["Andreas Ots <andreasots@gmail.com>"]
 
 [dependencies]
 nom = "2.0.0"
+twoway = "0.1.3"
