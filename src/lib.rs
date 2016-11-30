@@ -131,6 +131,11 @@ named!(prefix<Prefix>,
         tag!(b":") ~
         prefix: alt!(
             chain!(
+                host: hostname ~
+                tag!(b" "),
+                || Prefix::Server(host)
+            ) |
+            chain!(
                 nick: nickname ~
                 user: opt!(
                     chain!(
@@ -152,10 +157,6 @@ named!(prefix<Prefix>,
                     user: user,
                     host: host,
                 }
-            ) | chain!(
-                host: hostname ~
-                tag!(b" "),
-                || Prefix::Server(host)
             )
         ),
         || prefix
