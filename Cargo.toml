@@ -1,0 +1,7 @@
+[package]
+name = "irc-syntax"
+version = "0.1.0"
+authors = ["Andreas Ots <andreasots@gmail.com>"]
+
+[dependencies]
+nom = "2.0.0"
