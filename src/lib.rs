@@ -82,7 +82,7 @@ named!(tags<Vec<(&[u8], Option<Cow<[u8]> >)> >,
     chain!(
         tag!(b"@") ~
         tags: separated_nonempty_list!(tag!(b";"), tag) ~
-        tag!(b" "),
+        dbg_dmp!(tag!(b" ")),
         || tags
     )
 );
@@ -105,8 +105,8 @@ named!(tag<(&[u8], Option<Cow<[u8]>>)>,
         value: opt!(
             chain!(
                 tag!(b"=") ~
-                value: is_not!(&b"\0\r\n; "[..]),
-                || unescape_value(value)
+                value: opt!(is_not!(&b"\0\r\n; "[..])),
+                || unescape_value(value.unwrap_or(b""))
             )
         ),
         || (key, value)
@@ -330,201 +330,308 @@ fn twitch_examples() {
     }));
     assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PART #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::User {
+            nick: b"twitch_username",
+            user: Some(b"twitch_username"),
+            host: Some(b"twitch_username.tmi.twitch.tv"),
+        },
+        command: Command::String(b"PART"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :message here\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::User {
+            nick: b"twitch_username",
+            user: Some(b"twitch_username"),
+            host: Some(b"twitch_username.tmi.twitch.tv"),
+        },
+        command: Command::String(b"PRIVMSG"),
+        params: vec![b"#channel", b"message here"],
     }));
     assert_eq!(message(b"CAP REQ :twitch.tv/membership\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Implicit,
+        command: Command::String(b"CAP"),
+        params: vec![b"REQ", b"twitch.tv/membership"],
     }));
     assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/membership\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"CAP"),
+        params: vec![b"*", b"ACK", b"twitch.tv/membership"],
     }));
     assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :twitch_username user2 user3\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
+        command: Command::Numeric(b"353"),
+        params: vec![b"twitch_username", b"=", b"#channel", b"twitch_username user2 user3"],
     }));
     assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :user5 user6 nicknameN\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
+        command: Command::Numeric(b"353"),
+        params: vec![b"twitch_username", b"=", b"#channel", b"user5 user6 nicknameN"],
     }));
     assert_eq!(message(b":twitch_username.tmi.twitch.tv 366 twitch_username #channel :End of /NAMES list\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
+        command: Command::Numeric(b"366"),
+        params: vec![b"twitch_username", b"#channel", b"End of /NAMES list"],
     }));
     assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv JOIN #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::User {
+            nick: b"twitch_username",
+            user: Some(b"twitch_username"),
+            host: Some(b"twitch_username.tmi.twitch.tv"),
+        },
+        command: Command::String(b"JOIN"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PART #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::User {
+            nick: b"twitch_username",
+            user: Some(b"twitch_username"),
+            host: Some(b"twitch_username.tmi.twitch.tv"),
+        },
+        command: Command::String(b"PART"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b":jtv MODE #channel +o operator_user\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Server(b"jtv"),
+        command: Command::String(b"MODE"),
+        params: vec![b"#channel", b"+o", b"operator_user"],
     }));
     assert_eq!(message(b":jtv MODE #channel -o operator_user\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Server(b"jtv"),
+        command: Command::String(b"MODE"),
+        params: vec![b"#channel", b"-o", b"operator_user"],
     }));
     assert_eq!(message(b"CAP REQ :twitch.tv/commands\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Implicit,
+        command: Command::String(b"CAP"),
+        params: vec![b"REQ", b"twitch.tv/commands"],
     }));
     assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/commands\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"CAP"),
+        params: vec![b"*", b"ACK", b"twitch.tv/commands"],
     }));
     assert_eq!(message(b"@msg-id=slow_off :tmi.twitch.tv NOTICE #channel :This room is no longer in slow mode.\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"msg-id", Some(Cow::Borrowed(b"slow_off"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"NOTICE"),
+        params: vec![b"#channel", b"This room is no longer in slow mode."],
     }));
     assert_eq!(message(b":tmi.twitch.tv HOSTTARGET #hosting_channel :target_channel 99999\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"HOSTTARGET"),
+        params: vec![b"#hosting_channel", b"target_channel 99999"],
     }));
     assert_eq!(message(b":tmi.twitch.tv HOSTTARGET #hosting_channel :- 99999\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"HOSTTARGET"),
+        params: vec![b"#hosting_channel", b"- 99999"],
     }));
     assert_eq!(message(b":tmi.twitch.tv CLEARCHAT #channel :twitch_username\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"CLEARCHAT"),
+        params: vec![b"#channel", b"twitch_username"],
     }));
     assert_eq!(message(b":tmi.twitch.tv CLEARCHAT #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"CLEARCHAT"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b":tmi.twitch.tv USERSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"USERSTATE"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b":tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"ROOMSTATE"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b":tmi.twitch.tv USERNOTICE #channel :message\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"USERNOTICE"),
+        params: vec![b"#channel", b"message"],
     }));
     assert_eq!(message(b"CAP REQ :twitch.tv/tags\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        prefix: Prefix::Implicit,
+        command: Command::String(b"CAP"),
+        params: vec![b"REQ", b"twitch.tv/tags"],
     }));
     assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/tags\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"CAP"),
+        params: vec![b"*", b"ACK", b"twitch.tv/tags"],
     }));
     assert_eq!(message(b"@badges=global_mod/1,turbo/1;color=#0D4200;display-name=TWITCH_UserNaME;emotes=25:0-4,12-16/1902:6-10;mod=0;room-id=1337;subscriber=0;turbo=1;user-id=1337;user-type=global_mod :twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :Kappa Keepo Kappa\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        tags: vec![
+            (b"badges", Some(Cow::Borrowed(b"global_mod/1,turbo/1"))),
+            (b"color", Some(Cow::Borrowed(b"#0D4200"))),
+            (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserNaME"))),
+            (b"emotes", Some(Cow::Borrowed(b"25:0-4,12-16/1902:6-10"))),
+            (b"mod", Some(Cow::Borrowed(b"0"))),
+            (b"room-id", Some(Cow::Borrowed(b"1337"))),
+            (b"subscriber", Some(Cow::Borrowed(b"0"))),
+            (b"turbo", Some(Cow::Borrowed(b"1"))),
+            (b"user-id", Some(Cow::Borrowed(b"1337"))),
+            (b"user-type", Some(Cow::Borrowed(b"global_mod"))),
+        ],
+        prefix: Prefix::User {
+            nick: b"twitch_username",
+            user: Some(b"twitch_username"),
+            host: Some(b"twitch_username.tmi.twitch.tv"),
+        },
+        command: Command::String(b"PRIVMSG"),
+        params: vec![b"#channel", b"Kappa Keepo Kappa"],
     }));
     assert_eq!(message(b"@badges=staff/1,bits/1000;bits=100;color=;display-name=TWITCH_UserNaME;emotes=;id=b34ccfc7-4977-403a-8a94-33c6bac34fb8;mod=0;room-id=1337;subscriber=0;turbo=1;user-id=1337;user-type=staff :twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :cheer100\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
-        prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        tags: vec![
+            (b"badges", Some(Cow::Borrowed(b"staff/1,bits/1000"))),
+            (b"bits", Some(Cow::Borrowed(b"100"))),
+            (b"color", Some(Cow::Borrowed(b""))),
+            (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserNaME"))),
+            (b"emotes", Some(Cow::Borrowed(b""))),
+            (b"id", Some(Cow::Borrowed(b"b34ccfc7-4977-403a-8a94-33c6bac34fb8"))),
+            (b"mod", Some(Cow::Borrowed(b"0"))),
+            (b"room-id", Some(Cow::Borrowed(b"1337"))),
+            (b"subscriber", Some(Cow::Borrowed(b"0"))),
+            (b"turbo", Some(Cow::Borrowed(b"1"))),
+            (b"user-id", Some(Cow::Borrowed(b"1337"))),
+            (b"user-type", Some(Cow::Borrowed(b"staff"))),
+        ],
+        prefix: Prefix::User {
+            nick: b"twitch_username",
+            user: Some(b"twitch_username"),
+            host: Some(b"twitch_username.tmi.twitch.tv"),
+        },
+        command: Command::String(b"PRIVMSG"),
+        params: vec![b"#channel", b"cheer100"],
     }));
     assert_eq!(message(b"@color=#0D4200;display-name=TWITCH_UserNaME;emote-sets=0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239;mod=1;subscriber=1;turbo=1;user-type=staff :tmi.twitch.tv USERSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"color", Some(Cow::Borrowed(b"#0D4200"))),
+            (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserNaME"))),
+            (b"emote-sets", Some(Cow::Borrowed(b"0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239"))),
+            (b"mod", Some(Cow::Borrowed(b"1"))),
+            (b"subscriber", Some(Cow::Borrowed(b"1"))),
+            (b"turbo", Some(Cow::Borrowed(b"1"))),
+            (b"user-type", Some(Cow::Borrowed(b"staff"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"USERSTATE"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b"@color=#0D4200;display-name=TWITCH_UserNaME;emote-sets=0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239;turbo=0;user-id=1337;user-type=admin :tmi.twitch.tv GLOBALUSERSTATE\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"color", Some(Cow::Borrowed(b"#0D4200"))),
+            (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserNaME"))),
+            (b"emote-sets", Some(Cow::Borrowed(b"0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239"))),
+            (b"turbo", Some(Cow::Borrowed(b"0"))),
+            (b"user-id", Some(Cow::Borrowed(b"1337"))),
+            (b"user-type", Some(Cow::Borrowed(b"admin"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"GLOBALUSERSTATE"),
+        params: vec![],
     }));
     assert_eq!(message(b"@broadcaster-lang=;r9k=0;slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"broadcaster-lang", Some(Cow::Borrowed(b""))),
+            (b"r9k", Some(Cow::Borrowed(b"0"))),
+            (b"slow", Some(Cow::Borrowed(b"0"))),
+            (b"subs-only", Some(Cow::Borrowed(b"0"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"ROOMSTATE"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b"@slow=10 :tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"slow", Some(Cow::Borrowed(b"10"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"ROOMSTATE"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b"@badges=staff/1,broadcaster/1,turbo/1;color=#008000;display-name=TWITCH_UserName;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=1337;subscriber=1;system-msg=TWITCH_UserName\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=twitch_username;turbo=1;user-id=1337;user-type=staff :tmi.twitch.tv USERNOTICE #channel :Great stream -- keep it up!\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"badges", Some(Cow::Borrowed(b"staff/1,broadcaster/1,turbo/1"))),
+            (b"color", Some(Cow::Borrowed(b"#008000"))),
+            (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserName"))),
+            (b"emotes", Some(Cow::Borrowed(b""))),
+            (b"mod", Some(Cow::Borrowed(b"0"))),
+            (b"msg-id", Some(Cow::Borrowed(b"resub"))),
+            (b"msg-param-months", Some(Cow::Borrowed(b"6"))),
+            (b"room-id", Some(Cow::Borrowed(b"1337"))),
+            (b"subscriber", Some(Cow::Borrowed(b"1"))),
+            (b"system-msg", Some(Cow::Borrowed(b"TWITCH_UserName has subscribed for 6 months!"))),
+            (b"login", Some(Cow::Borrowed(b"twitch_username"))),
+            (b"turbo", Some(Cow::Borrowed(b"1"))),
+            (b"user-id", Some(Cow::Borrowed(b"1337"))),
+            (b"user-type", Some(Cow::Borrowed(b"staff"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"USERNOTICE"),
+        params: vec![b"#channel", b"Great stream -- keep it up!"],
     }));
     assert_eq!(message(b"@badges=staff/1,broadcaster/1,turbo/1;color=#008000;display-name=TWITCH_UserName;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=1337;subscriber=1;system-msg=TWITCH_UserName\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=twitch_username;turbo=1;user-id=1337;user-type=staff :tmi.twitch.tv USERNOTICE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"badges", Some(Cow::Borrowed(b"staff/1,broadcaster/1,turbo/1"))),
+            (b"color", Some(Cow::Borrowed(b"#008000"))),
+            (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserName"))),
+            (b"emotes", Some(Cow::Borrowed(b""))),
+            (b"mod", Some(Cow::Borrowed(b"0"))),
+            (b"msg-id", Some(Cow::Borrowed(b"resub"))),
+            (b"msg-param-months", Some(Cow::Borrowed(b"6"))),
+            (b"room-id", Some(Cow::Borrowed(b"1337"))),
+            (b"subscriber", Some(Cow::Borrowed(b"1"))),
+            (b"system-msg", Some(Cow::Borrowed(b"TWITCH_UserName has subscribed for 6 months!"))),
+            (b"login", Some(Cow::Borrowed(b"twitch_username"))),
+            (b"turbo", Some(Cow::Borrowed(b"1"))),
+            (b"user-id", Some(Cow::Borrowed(b"1337"))),
+            (b"user-type", Some(Cow::Borrowed(b"staff"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"USERNOTICE"),
+        params: vec![b"#channel"],
     }));
     assert_eq!(message(b"@ban-duration=1;ban-reason=Follow\\sthe\\srules :tmi.twitch.tv CLEARCHAT #channel :target_username\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"ban-duration", Some(Cow::Borrowed(b"1"))),
+            (b"ban-reason", Some(Cow::Borrowed(b"Follow the rules"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"CLEARCHAT"),
+        params: vec![b"#channel", b"target_username"],
     }));
     assert_eq!(message(b"@ban-reason=Follow\\sthe\\srules :tmi.twitch.tv CLEARCHAT #channel :target_username\r\n"), nom::IResult::Done(&b""[..], Message {
-        tags: vec![],
+        tags: vec![
+            (b"ban-reason", Some(Cow::Borrowed(b"Follow the rules"))),
+        ],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
-        command: Command::Numeric(b"003"),
-        params: vec![b"twitch_username", b"This server is rather new"],
+        command: Command::String(b"CLEARCHAT"),
+        params: vec![b"#channel", b"target_username"],
     }));
 }
 
