@@ -1,3 +1,7 @@
+#![forbid(missing_docs)]
+
+//! IRC message parser loosely inspired by [RFC 2812](https://tools.ietf.org/html/rfc2812).
+
 #[macro_use]
 extern crate nom;
 extern crate twoway;
@@ -5,28 +9,43 @@ extern crate twoway;
 use nom::{alpha, digit};
 use std::borrow::Cow;
 
+/// Message source.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Prefix<'a> {
+    /// Message was sent by a server.
     Server(&'a [u8]),
+    /// Message was sent by a user.
     User {
+        /// User's nickname.
         nick: &'a [u8],
+        /// User's username.
         user: Option<&'a [u8]>,
+        /// User's hostname.
         host: Option<&'a [u8]>,
     },
+    /// Prefix was missing.
     Implicit,
 }
 
+/// Parsed IRC command.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command<'a> {
+    /// A numeric command.
     Numeric(&'a [u8]),
+    /// A string command.
     String(&'a [u8]),
 }
 
+/// Parsed IRC message.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Message<'a> {
+    /// [IRCv3.2 message tags](http://ircv3.net/specs/core/message-tags-3.2.html)
     pub tags: Vec<(&'a [u8], Option<Cow<'a, [u8]>>)>,
+    /// Message source.
     pub prefix: Prefix<'a>,
+    /// Command.
     pub command: Command<'a>,
+    /// Command parameters.
     pub params: Vec<&'a [u8]>,
 }
 
@@ -207,7 +226,7 @@ named!(trailing<&[u8]>,
     is_not!(&b"\0\r\n"[..])
 );
 
-named!(pub message<Message>,
+named_attr!(#[doc="Parse an IRC message."], pub message<Message>,
     chain!(
         tags: opt!(tags) ~
         prefix: opt!(prefix) ~
