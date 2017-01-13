@@ -557,53 +557,6 @@ pub struct Message<T: ToMut> {
     pub params: Vec<T>,
 }
 
-impl<T: ToMut> Message<T> {
-    /// Convert 
-    ///
-    /// ## Examples
-    /// ```
-    /// fn converter<S: AsRef<[u8]>>(bytes: &S) -> String {
-    ///     String::from_utf8_lossy(bytes.as_ref()).into_owned()
-    /// }
-    /// 
-    /// let message = irc_syntax::Message {
-    ///     tags: vec![],
-    ///     prefix: irc_syntax::Prefix::Implicit,
-    ///     command: irc_syntax::Command::Command(irc_syntax::KnownCommand::PASS),
-    ///     params: vec![&b"oauth:twitch_oauth_token"[..]],
-    /// };
-    /// assert_eq!(message.convert(converter, converter), irc_syntax::Message {
-    ///     tags: vec![],
-    ///     prefix: irc_syntax::Prefix::Implicit,
-    ///     command: irc_syntax::Command::Command(irc_syntax::KnownCommand::PASS),
-    ///     params: vec!["oauth:twitch_oauth_token".to_string()],
-    /// });
-    /// ```
-    // FIXME: Not happy with this design TBH.
-    pub fn convert<U: ToMut, F: FnMut(&T) -> U, G: FnMut(&T::Container) -> U::Container>(&self, mut conv_t: F, mut conv_container: G) -> Message<U> {
-        Message {
-            tags: self.tags.iter().map(|&(ref key, ref value)| (conv_t(key), value.as_ref().map(&mut conv_container))).collect(),
-            prefix: match self.prefix {
-                Prefix::Server(ref server) => Prefix::Server(conv_t(server)),
-                Prefix::User { ref nick, ref user, ref host } => Prefix::User {
-                    nick: conv_t(nick),
-                    user: user.as_ref().map(&mut conv_t),
-                    host: host.as_ref().map(&mut conv_t),
-                },
-                Prefix::Implicit => Prefix::Implicit,
-            },
-            command: match self.command {
-                Command::Reply(reply) => Command::Reply(reply),
-                Command::Error(error) => Command::Error(error),
-                Command::Command(command) => Command::Command(command),
-                Command::Numeric(ref n) => Command::Numeric(conv_t(n)),
-                Command::String(ref s) => Command::String(conv_t(s)),
-            },
-            params: self.params.iter().map(conv_t).collect(),
-        }
-    }
-}
-
 fn unescape_value(value: &[u8]) -> Cow<[u8]> {
     const ESCAPE_SEQUENCES: [(&'static [u8], u8); 5] =
         [(b"\\:", b';'), (b"\\s", b' '), (b"\\\\", b'\\'), (b"\\r", b'\r'), (b"\\n", b'\n')];
