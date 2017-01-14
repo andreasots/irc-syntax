@@ -609,7 +609,7 @@ named!(tags<Vec<(&[u8], Option<Cow<[u8]> >)> >,
     chain!(
         tag!(b"@") ~
         tags: separated_nonempty_list!(tag!(b";"), tag) ~
-        dbg_dmp!(tag!(b" ")),
+        tag!(b" "),
         || tags
     )
 );
@@ -719,8 +719,13 @@ named!(command<Command<&[u8]> >,
 
 named!(params<Vec<&[u8]> >,
     chain!(
-        tag!(b" ") ~
-        params: separated_list!(tag!(b" "), middle) ~
+        params: opt!(
+            chain!(
+                tag!(b" ") ~
+                params: separated_nonempty_list!(tag!(b" "), middle),
+                || params
+            )
+        ) ~
         trailing: opt!(
             chain!(
                 tag!(b" :") ~
@@ -729,13 +734,9 @@ named!(params<Vec<&[u8]> >,
             )
         ),
         || {
-            if let Some(trailing) = trailing {
-                let mut params = params;
-                params.push(trailing);
-                params
-            } else {
-                params
-            }
+            let mut params = params.unwrap_or_else(Vec::new);
+            params.extend(trailing);
+            params
         }
     )
 );
@@ -759,14 +760,14 @@ named_attr!(#[doc="Parse an IRC message."], pub message<Message<&[u8]> >,
         tags: opt!(tags) ~
         prefix: opt!(prefix) ~
         command: command ~
-        params: opt!(params) ~
+        params: params ~
         tag!(b"\r\n"),
         || {
             Message {
                 tags: tags.unwrap_or_else(Vec::new),
                 prefix: prefix.unwrap_or(Prefix::Implicit),
                 command: command,
-                params: params.unwrap_or_else(Vec::new),
+                params: params,
             }
         }
     )
@@ -1179,6 +1180,12 @@ fn twitch_examples() {
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"CLEARCHAT"),
         params: vec![b"#channel", b"target_username"],
+    }));
+    assert_eq!(message(b"PING :tmi.twitch.tv\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+        tags: vec![],
+        prefix: Prefix::Implicit,
+        command: Command::Command(KnownCommand::PING),
+        params: vec![b"tmi.twitch.tv"],
     }));
 }
 
