@@ -189,8 +189,8 @@ pub enum Reply {
 }
 
 impl Reply {
-    fn from(data: &[u8]) -> Option<Reply> {
-        match (data[0] - b'0') as u16 * 100 + (data[1] - b'0') as u16 * 10 + (data[2] - b'0') as u16 {
+    fn from(data: u16) -> Option<Reply> {
+        match data {
             1 => Some(Reply::WELCOME),
             2 => Some(Reply::YOURHOST),
             3 => Some(Reply::CREATED),
@@ -364,8 +364,8 @@ pub enum Error {
 }
 
 impl Error {
-    fn from(data: &[u8]) -> Option<Error> {
-        match (data[0] - b'0') as u16 * 100 + (data[1] - b'0') as u16 * 10 + (data[2] - b'0') as u16 {
+    fn from(data: u16) -> Option<Error> {
+        match data {
             401 => Some(Error::NOSUCHNICK),
             402 => Some(Error::NOSUCHSERVER),
             403 => Some(Error::NOSUCHCHANNEL),
@@ -539,7 +539,7 @@ pub enum Command<T> {
     /// Command.
     Command(KnownCommand),
     /// An unknown numeric response.
-    Numeric(T),
+    Numeric(u16),
     /// An unknown string command.
     String(T),
 }
@@ -691,6 +691,7 @@ named!(prefix<Prefix<&[u8]> >,
 );
 
 fn parse_numeric_response(response: &[u8]) -> Command<&[u8]> {
+    let response = ((response[0] - b'0') as u16) * 100 + ((response[1] - b'0') as u16) * 10 + ((response[2] - b'0') as u16);
     if let Some(reply) = Reply::from(response) {
         return Command::Reply(reply);
     }
