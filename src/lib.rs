@@ -9,67 +9,19 @@ extern crate twoway;
 use nom::{alpha, digit};
 use std::borrow::Cow;
 
-/// Trait to abstract over ownership.
-pub trait ToMut {
-    /// Owned version of `Self`.
-    type Owned;
-    /// Type from which `Self::Owned` can be mutably borrowed.
-    // FIXME?: `type Container: AsMut<Self::Owned>`? But `AsMut<_>` is not implemented for `Cow<_, _>`...
-    type Container;
-
-    /// Converts `&mut Self::Container` to a `&mut Self::Owned`.
-    fn to_mut(container: &mut Self::Container) -> &mut Self::Owned;
-}
-
-impl<'a> ToMut for &'a [u8] {
-    type Owned = Vec<u8>;
-    type Container = Cow<'a, [u8]>;
-
-    fn to_mut<'b>(container: &'b mut Cow<'a, [u8]>) -> &'b mut Vec<u8> {
-        container.to_mut()
-    }
-}
-
-impl ToMut for Vec<u8> {
-    type Owned = Vec<u8>;
-    type Container = Vec<u8>;
-
-    fn to_mut(container: &mut Vec<u8>) -> &mut Vec<u8> {
-        container
-    }
-}
-
-impl<'a> ToMut for &'a str {
-    type Owned = String;
-    type Container = Cow<'a, str>;
-
-    fn to_mut<'b>(container: &'b mut Cow<'a, str>) -> &'b mut String {
-        container.to_mut()
-    }
-}
-
-impl ToMut for String {
-    type Owned = String;
-    type Container = String;
-
-    fn to_mut(container: &mut String) -> &mut String {
-        container
-    }
-}
-
 /// Message source.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Prefix<T> {
+pub enum Prefix<'a> {
     /// Message was sent by a server.
-    Server(T),
+    Server(&'a [u8]),
     /// Message was sent by a user.
     User {
         /// User's nickname.
-        nick: T,
+        nick: &'a [u8],
         /// User's username.
-        user: Option<T>,
+        user: Option<&'a [u8]>,
         /// User's hostname.
-        host: Option<T>,
+        host: Option<&'a [u8]>,
     },
     /// Prefix was missing.
     Implicit,
@@ -531,7 +483,7 @@ impl KnownCommand {
 
 /// Parsed IRC command.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Command<T> {
+pub enum Command<'a> {
     /// Numeric reply.
     Reply(Reply),
     /// Numeric error.
@@ -541,20 +493,20 @@ pub enum Command<T> {
     /// An unknown numeric response.
     Numeric(u16),
     /// An unknown string command.
-    String(T),
+    String(&'a [u8]),
 }
 
 /// Parsed IRC message.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Message<T: ToMut> {
+pub struct Message<'a> {
     /// [IRCv3.2 message tags](http://ircv3.net/specs/core/message-tags-3.2.html)
-    pub tags: Vec<(T, Option<T::Container>)>,
+    pub tags: Vec<(&'a [u8], Option<Cow<'a, [u8]>>)>,
     /// Message source.
-    pub prefix: Prefix<T>,
+    pub prefix: Prefix<'a>,
     /// Command.
-    pub command: Command<T>,
+    pub command: Command<'a>,
     /// Command parameters.
-    pub params: Vec<T>,
+    pub params: Vec<&'a [u8]>,
 }
 
 fn unescape_value(value: &[u8]) -> Cow<[u8]> {
@@ -653,7 +605,7 @@ named!(user<&[u8]>,
     is_not!(&b"\0\r\n @"[..])
 );
 
-named!(prefix<Prefix<&[u8]> >,
+named!(prefix<Prefix>,
     chain!(
         tag!(b":") ~
         prefix: alt!(
@@ -690,7 +642,7 @@ named!(prefix<Prefix<&[u8]> >,
     )
 );
 
-fn parse_numeric_response(response: &[u8]) -> Command<&[u8]> {
+fn parse_numeric_response(response: &[u8]) -> Command {
     let response = ((response[0] - b'0') as u16) * 100 + ((response[1] - b'0') as u16) * 10 + ((response[2] - b'0') as u16);
     if let Some(reply) = Reply::from(response) {
         return Command::Reply(reply);
@@ -703,7 +655,7 @@ fn parse_numeric_response(response: &[u8]) -> Command<&[u8]> {
     Command::Numeric(response)
 }
 
-fn parse_string_command(cmd: &[u8]) -> Command<&[u8]> {
+fn parse_string_command(cmd: &[u8]) -> Command {
     if let Some(cmd) = KnownCommand::from(cmd) {
         return Command::Command(cmd);
     }
@@ -711,7 +663,7 @@ fn parse_string_command(cmd: &[u8]) -> Command<&[u8]> {
     Command::String(cmd)
 }
 
-named!(command<Command<&[u8]> >,
+named!(command<Command>,
     alt!(
         map!(digit, parse_numeric_response) |
         map!(alpha, parse_string_command)
@@ -756,7 +708,7 @@ named!(trailing<&[u8]>,
     is_not!(&b"\0\r\n"[..])
 );
 
-named_attr!(#[doc="Parse an IRC message."], pub message<Message<&[u8]> >,
+named_attr!(#[doc="Parse an IRC message."], pub message<Message>,
     chain!(
         tags: opt!(tags) ~
         prefix: opt!(prefix) ~
@@ -777,79 +729,79 @@ named_attr!(#[doc="Parse an IRC message."], pub message<Message<&[u8]> >,
 /// Example commands and responses from https://dev.twitch.tv/docs/irc/
 #[test]
 fn twitch_examples() {
-    assert_eq!(message(b"PASS oauth:twitch_oauth_token\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"PASS oauth:twitch_oauth_token\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::Command(KnownCommand::PASS),
         params: vec![b"oauth:twitch_oauth_token"],
     }));
-    assert_eq!(message(b"NICK twitch_username\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"NICK twitch_username\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::Command(KnownCommand::NICK),
         params: vec![b"twitch_username"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 001 twitch_username :Welcome, GLHF!\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 001 twitch_username :Welcome, GLHF!\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Reply(Reply::WELCOME),
         params: vec![b"twitch_username", b"Welcome, GLHF!"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 002 twitch_username :Your host is tmi.twitch.tv\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 002 twitch_username :Your host is tmi.twitch.tv\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Reply(Reply::YOURHOST),
         params: vec![b"twitch_username", b"Your host is tmi.twitch.tv"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 003 twitch_username :This server is rather new\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 003 twitch_username :This server is rather new\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Reply(Reply::CREATED),
         params: vec![b"twitch_username", b"This server is rather new"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 004 twitch_username :-\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 004 twitch_username :-\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Reply(Reply::MYINFO),
         params: vec![b"twitch_username", b"-"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 375 twitch_username :-\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 375 twitch_username :-\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Reply(Reply::MOTDSTART),
         params: vec![b"twitch_username", b"-"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 372 twitch_username :You are in a maze of twisty passages, all alike.\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 372 twitch_username :You are in a maze of twisty passages, all alike.\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Reply(Reply::MOTD),
         params: vec![b"twitch_username", b"You are in a maze of twisty passages, all alike."],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 376 twitch_username :>\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 376 twitch_username :>\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Reply(Reply::ENDOFMOTD),
         params: vec![b"twitch_username", b">"],
     }));
-    assert_eq!(message(b"WHO #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"WHO #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::Command(KnownCommand::WHO),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv 421 twitch_username WHO :Unknown command\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv 421 twitch_username WHO :Unknown command\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::Error(Error::UNKNOWNCOMMAND),
         params: vec![b"twitch_username", b"WHO", b"Unknown command"],
     }));
-    assert_eq!(message(b"JOIN #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"JOIN #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::Command(KnownCommand::JOIN),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv JOIN #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv JOIN #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"twitch_username"[..],
@@ -859,25 +811,25 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::JOIN),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :twitch_username\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :twitch_username\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
         command: Command::Reply(Reply::NAMREPLY),
         params: vec![b"twitch_username", b"=", b"#channel", b"twitch_username"],
     }));
-    assert_eq!(message(b":twitch_username.tmi.twitch.tv 366 twitch_username #channel :End of /NAMES list\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username.tmi.twitch.tv 366 twitch_username #channel :End of /NAMES list\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
         command: Command::Reply(Reply::ENDOFNAMES),
         params: vec![b"twitch_username", b"#channel", b"End of /NAMES list"],
     }));
-    assert_eq!(message(b"PART #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"PART #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::Command(KnownCommand::PART),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PART #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PART #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"twitch_username"[..],
@@ -887,7 +839,7 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::PART),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :message here\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :message here\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"twitch_username"[..],
@@ -897,37 +849,37 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::PRIVMSG),
         params: vec![b"#channel", b"message here"],
     }));
-    assert_eq!(message(b"CAP REQ :twitch.tv/membership\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"CAP REQ :twitch.tv/membership\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::String(b"CAP"),
         params: vec![b"REQ", b"twitch.tv/membership"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/membership\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/membership\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"CAP"),
         params: vec![b"*", b"ACK", b"twitch.tv/membership"],
     }));
-    assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :twitch_username user2 user3\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :twitch_username user2 user3\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
         command: Command::Reply(Reply::NAMREPLY),
         params: vec![b"twitch_username", b"=", b"#channel", b"twitch_username user2 user3"],
     }));
-    assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :user5 user6 nicknameN\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username.tmi.twitch.tv 353 twitch_username = #channel :user5 user6 nicknameN\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
         command: Command::Reply(Reply::NAMREPLY),
         params: vec![b"twitch_username", b"=", b"#channel", b"user5 user6 nicknameN"],
     }));
-    assert_eq!(message(b":twitch_username.tmi.twitch.tv 366 twitch_username #channel :End of /NAMES list\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username.tmi.twitch.tv 366 twitch_username #channel :End of /NAMES list\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"twitch_username.tmi.twitch.tv"),
         command: Command::Reply(Reply::ENDOFNAMES),
         params: vec![b"twitch_username", b"#channel", b"End of /NAMES list"],
     }));
-    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv JOIN #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv JOIN #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"twitch_username"[..],
@@ -937,7 +889,7 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::JOIN),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PART #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":twitch_username!twitch_username@twitch_username.tmi.twitch.tv PART #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"twitch_username"[..],
@@ -947,31 +899,31 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::PART),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":jtv MODE #channel +o operator_user\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":jtv MODE #channel +o operator_user\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"jtv"),
         command: Command::Command(KnownCommand::MODE),
         params: vec![b"#channel", b"+o", b"operator_user"],
     }));
-    assert_eq!(message(b":jtv MODE #channel -o operator_user\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":jtv MODE #channel -o operator_user\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"jtv"),
         command: Command::Command(KnownCommand::MODE),
         params: vec![b"#channel", b"-o", b"operator_user"],
     }));
-    assert_eq!(message(b"CAP REQ :twitch.tv/commands\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"CAP REQ :twitch.tv/commands\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::String(b"CAP"),
         params: vec![b"REQ", b"twitch.tv/commands"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/commands\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/commands\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"CAP"),
         params: vec![b"*", b"ACK", b"twitch.tv/commands"],
     }));
-    assert_eq!(message(b"@msg-id=slow_off :tmi.twitch.tv NOTICE #channel :This room is no longer in slow mode.\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@msg-id=slow_off :tmi.twitch.tv NOTICE #channel :This room is no longer in slow mode.\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"msg-id", Some(Cow::Borrowed(b"slow_off"))),
         ],
@@ -979,61 +931,61 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::NOTICE),
         params: vec![b"#channel", b"This room is no longer in slow mode."],
     }));
-    assert_eq!(message(b":tmi.twitch.tv HOSTTARGET #hosting_channel :target_channel 99999\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv HOSTTARGET #hosting_channel :target_channel 99999\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"HOSTTARGET"),
         params: vec![b"#hosting_channel", b"target_channel 99999"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv HOSTTARGET #hosting_channel :- 99999\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv HOSTTARGET #hosting_channel :- 99999\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"HOSTTARGET"),
         params: vec![b"#hosting_channel", b"- 99999"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv CLEARCHAT #channel :twitch_username\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv CLEARCHAT #channel :twitch_username\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"CLEARCHAT"),
         params: vec![b"#channel", b"twitch_username"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv CLEARCHAT #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv CLEARCHAT #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"CLEARCHAT"),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv USERSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv USERSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"USERSTATE"),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"ROOMSTATE"),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv USERNOTICE #channel :message\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv USERNOTICE #channel :message\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"USERNOTICE"),
         params: vec![b"#channel", b"message"],
     }));
-    assert_eq!(message(b"CAP REQ :twitch.tv/tags\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"CAP REQ :twitch.tv/tags\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::String(b"CAP"),
         params: vec![b"REQ", b"twitch.tv/tags"],
     }));
-    assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/tags\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":tmi.twitch.tv CAP * ACK :twitch.tv/tags\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Server(b"tmi.twitch.tv"),
         command: Command::String(b"CAP"),
         params: vec![b"*", b"ACK", b"twitch.tv/tags"],
     }));
-    assert_eq!(message(b"@badges=global_mod/1,turbo/1;color=#0D4200;display-name=TWITCH_UserNaME;emotes=25:0-4,12-16/1902:6-10;mod=0;room-id=1337;subscriber=0;turbo=1;user-id=1337;user-type=global_mod :twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :Kappa Keepo Kappa\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@badges=global_mod/1,turbo/1;color=#0D4200;display-name=TWITCH_UserNaME;emotes=25:0-4,12-16/1902:6-10;mod=0;room-id=1337;subscriber=0;turbo=1;user-id=1337;user-type=global_mod :twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :Kappa Keepo Kappa\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"badges", Some(Cow::Borrowed(b"global_mod/1,turbo/1"))),
             (b"color", Some(Cow::Borrowed(b"#0D4200"))),
@@ -1054,7 +1006,7 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::PRIVMSG),
         params: vec![b"#channel", b"Kappa Keepo Kappa"],
     }));
-    assert_eq!(message(b"@badges=staff/1,bits/1000;bits=100;color=;display-name=TWITCH_UserNaME;emotes=;id=b34ccfc7-4977-403a-8a94-33c6bac34fb8;mod=0;room-id=1337;subscriber=0;turbo=1;user-id=1337;user-type=staff :twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :cheer100\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@badges=staff/1,bits/1000;bits=100;color=;display-name=TWITCH_UserNaME;emotes=;id=b34ccfc7-4977-403a-8a94-33c6bac34fb8;mod=0;room-id=1337;subscriber=0;turbo=1;user-id=1337;user-type=staff :twitch_username!twitch_username@twitch_username.tmi.twitch.tv PRIVMSG #channel :cheer100\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"badges", Some(Cow::Borrowed(b"staff/1,bits/1000"))),
             (b"bits", Some(Cow::Borrowed(b"100"))),
@@ -1077,7 +1029,7 @@ fn twitch_examples() {
         command: Command::Command(KnownCommand::PRIVMSG),
         params: vec![b"#channel", b"cheer100"],
     }));
-    assert_eq!(message(b"@color=#0D4200;display-name=TWITCH_UserNaME;emote-sets=0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239;mod=1;subscriber=1;turbo=1;user-type=staff :tmi.twitch.tv USERSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@color=#0D4200;display-name=TWITCH_UserNaME;emote-sets=0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239;mod=1;subscriber=1;turbo=1;user-type=staff :tmi.twitch.tv USERSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"color", Some(Cow::Borrowed(b"#0D4200"))),
             (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserNaME"))),
@@ -1091,7 +1043,7 @@ fn twitch_examples() {
         command: Command::String(b"USERSTATE"),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b"@color=#0D4200;display-name=TWITCH_UserNaME;emote-sets=0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239;turbo=0;user-id=1337;user-type=admin :tmi.twitch.tv GLOBALUSERSTATE\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@color=#0D4200;display-name=TWITCH_UserNaME;emote-sets=0,33,50,237,793,2126,3517,4578,5569,9400,10337,12239;turbo=0;user-id=1337;user-type=admin :tmi.twitch.tv GLOBALUSERSTATE\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"color", Some(Cow::Borrowed(b"#0D4200"))),
             (b"display-name", Some(Cow::Borrowed(b"TWITCH_UserNaME"))),
@@ -1104,7 +1056,7 @@ fn twitch_examples() {
         command: Command::String(b"GLOBALUSERSTATE"),
         params: vec![],
     }));
-    assert_eq!(message(b"@broadcaster-lang=;r9k=0;slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@broadcaster-lang=;r9k=0;slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"broadcaster-lang", Some(Cow::Borrowed(b""))),
             (b"r9k", Some(Cow::Borrowed(b"0"))),
@@ -1115,7 +1067,7 @@ fn twitch_examples() {
         command: Command::String(b"ROOMSTATE"),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b"@slow=10 :tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@slow=10 :tmi.twitch.tv ROOMSTATE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"slow", Some(Cow::Borrowed(b"10"))),
         ],
@@ -1123,7 +1075,7 @@ fn twitch_examples() {
         command: Command::String(b"ROOMSTATE"),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b"@badges=staff/1,broadcaster/1,turbo/1;color=#008000;display-name=TWITCH_UserName;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=1337;subscriber=1;system-msg=TWITCH_UserName\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=twitch_username;turbo=1;user-id=1337;user-type=staff :tmi.twitch.tv USERNOTICE #channel :Great stream -- keep it up!\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@badges=staff/1,broadcaster/1,turbo/1;color=#008000;display-name=TWITCH_UserName;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=1337;subscriber=1;system-msg=TWITCH_UserName\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=twitch_username;turbo=1;user-id=1337;user-type=staff :tmi.twitch.tv USERNOTICE #channel :Great stream -- keep it up!\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"badges", Some(Cow::Borrowed(b"staff/1,broadcaster/1,turbo/1"))),
             (b"color", Some(Cow::Borrowed(b"#008000"))),
@@ -1144,7 +1096,7 @@ fn twitch_examples() {
         command: Command::String(b"USERNOTICE"),
         params: vec![b"#channel", b"Great stream -- keep it up!"],
     }));
-    assert_eq!(message(b"@badges=staff/1,broadcaster/1,turbo/1;color=#008000;display-name=TWITCH_UserName;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=1337;subscriber=1;system-msg=TWITCH_UserName\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=twitch_username;turbo=1;user-id=1337;user-type=staff :tmi.twitch.tv USERNOTICE #channel\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@badges=staff/1,broadcaster/1,turbo/1;color=#008000;display-name=TWITCH_UserName;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=1337;subscriber=1;system-msg=TWITCH_UserName\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=twitch_username;turbo=1;user-id=1337;user-type=staff :tmi.twitch.tv USERNOTICE #channel\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"badges", Some(Cow::Borrowed(b"staff/1,broadcaster/1,turbo/1"))),
             (b"color", Some(Cow::Borrowed(b"#008000"))),
@@ -1165,7 +1117,7 @@ fn twitch_examples() {
         command: Command::String(b"USERNOTICE"),
         params: vec![b"#channel"],
     }));
-    assert_eq!(message(b"@ban-duration=1;ban-reason=Follow\\sthe\\srules :tmi.twitch.tv CLEARCHAT #channel :target_username\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@ban-duration=1;ban-reason=Follow\\sthe\\srules :tmi.twitch.tv CLEARCHAT #channel :target_username\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"ban-duration", Some(Cow::Borrowed(b"1"))),
             (b"ban-reason", Some(Cow::Borrowed(b"Follow the rules"))),
@@ -1174,7 +1126,7 @@ fn twitch_examples() {
         command: Command::String(b"CLEARCHAT"),
         params: vec![b"#channel", b"target_username"],
     }));
-    assert_eq!(message(b"@ban-reason=Follow\\sthe\\srules :tmi.twitch.tv CLEARCHAT #channel :target_username\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@ban-reason=Follow\\sthe\\srules :tmi.twitch.tv CLEARCHAT #channel :target_username\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"ban-reason", Some(Cow::Borrowed(b"Follow the rules"))),
         ],
@@ -1182,7 +1134,7 @@ fn twitch_examples() {
         command: Command::String(b"CLEARCHAT"),
         params: vec![b"#channel", b"target_username"],
     }));
-    assert_eq!(message(b"PING :tmi.twitch.tv\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"PING :tmi.twitch.tv\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::Implicit,
         command: Command::Command(KnownCommand::PING),
@@ -1193,7 +1145,7 @@ fn twitch_examples() {
 /// Examples from http://ircv3.net/specs/core/message-tags-3.2.html
 #[test]
 fn ircv32_message_tags_examples() {
-    assert_eq!(message(b":nick!ident@host.com PRIVMSG me :Hello\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":nick!ident@host.com PRIVMSG me :Hello\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"nick"[..],
@@ -1203,7 +1155,7 @@ fn ircv32_message_tags_examples() {
         command: Command::Command(KnownCommand::PRIVMSG),
         params: vec![b"me", b"Hello"],
     }));
-    assert_eq!(message(b"@aaa=bbb;ccc;example.com/ddd=eee :nick!ident@host.com PRIVMSG me :Hello\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b"@aaa=bbb;ccc;example.com/ddd=eee :nick!ident@host.com PRIVMSG me :Hello\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![
             (b"aaa", Some(Cow::Borrowed(b"bbb"))),
             (b"ccc", None),
@@ -1223,7 +1175,7 @@ fn ircv32_message_tags_examples() {
 #[test]
 fn twitch_pls() {
     // Nickname starting with a digit.
-    assert_eq!(message(b":3and4fifths!3and4fifths@3and4fifths.tmi.twitch.tv PRIVMSG #loadingreadyrun :You missed a window to climb through\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":3and4fifths!3and4fifths@3and4fifths.tmi.twitch.tv PRIVMSG #loadingreadyrun :You missed a window to climb through\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"3and4fifths"[..],
@@ -1235,7 +1187,7 @@ fn twitch_pls() {
     }));
 
     // Hostname component ending with an underscore.
-    assert_eq!(message(b":featherweight_!featherweight_@featherweight_.tmi.twitch.tv PRIVMSG #loadingreadyrun :Hello human people\r\n"), nom::IResult::Done(&b""[..], Message::<&[u8]> {
+    assert_eq!(message(b":featherweight_!featherweight_@featherweight_.tmi.twitch.tv PRIVMSG #loadingreadyrun :Hello human people\r\n"), nom::IResult::Done(&b""[..], Message {
         tags: vec![],
         prefix: Prefix::User {
             nick: &b"featherweight_"[..],
