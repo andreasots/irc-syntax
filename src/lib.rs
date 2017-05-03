@@ -6,7 +6,7 @@
 extern crate nom;
 extern crate twoway;
 
-use nom::{alpha, digit};
+use nom::{alpha, digit, IResult};
 use std::borrow::Cow;
 
 /// Message source.
@@ -725,6 +725,15 @@ named_attr!(#[doc="Parse an IRC message."], pub message<Message>,
         }
     )
 );
+
+/// Parse a message. Returns `Some` with the parsed message and its length if the message is complete or `None` if the message is incomplete.
+pub fn parse_message(input: &[u8]) -> Result<Option<(Message, usize)>, ()> {
+    match message(input) {
+        IResult::Done(tail, msg) => Ok(Some((msg, input.len() - tail.len()))),
+        IResult::Incomplete(_) => Ok(None),
+        IResult::Error(_) => Err(()),
+    }
+}
 
 /// Example commands and responses from https://dev.twitch.tv/docs/irc/
 #[test]
