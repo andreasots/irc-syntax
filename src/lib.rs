@@ -558,37 +558,37 @@ named!(ip6addr<&[u8]>,
 );
 
 named!(tags<Vec<(&[u8], Option<Cow<[u8]> >)> >,
-    chain!(
-        tag!(b"@") ~
-        tags: separated_nonempty_list!(tag!(b";"), tag) ~
-        tag!(b" "),
-        || tags
+    do_parse!(
+        tag!(b"@") >>
+        tags: separated_nonempty_list!(tag!(b";"), tag) >>
+        tag!(b" ") >>
+        (tags)
     )
 );
 
 named!(tag<(&[u8], Option<Cow<[u8]>>)>,
-    chain!(
+    do_parse!(
         key: recognize!(
-            chain!(
+            do_parse!(
                 opt!(
-                    chain!(
-                        host ~
-                        tag!(b"/"),
-                        || ()
+                    do_parse!(
+                        host >>
+                        tag!(b"/") >>
+                        ()
                     )
-                ) ~
-                take_while!(call!(|b| nom::is_alphanumeric(b) || b == b'-')),
-                || ()
+                ) >>
+                take_while!(call!(|b| nom::is_alphanumeric(b) || b == b'-')) >>
+                ()
             )
-        ) ~
+        ) >>
         value: opt!(
-            chain!(
-                tag!(b"=") ~
-                value: opt!(is_not!(&b"\0\r\n; "[..])),
-                || unescape_value(value.unwrap_or(b""))
+            do_parse!(
+                tag!(b"=") >>
+                value: opt!(is_not!(&b"\0\r\n; "[..])) >>
+                (unescape_value(value.unwrap_or(b"")))
             )
-        ),
-        || (key, value)
+        ) >>
+        (key, value)
     )
 );
 
@@ -606,39 +606,39 @@ named!(user<&[u8]>,
 );
 
 named!(prefix<Prefix>,
-    chain!(
-        tag!(b":") ~
+    do_parse!(
+        tag!(b":") >>
         prefix: alt!(
-            chain!(
-                host: hostname ~
-                tag!(b" "),
-                || Prefix::Server(host)
+            do_parse!(
+                host: hostname >>
+                tag!(b" ") >>
+                (Prefix::Server(host))
             ) |
-            chain!(
-                nick: nickname ~
+            do_parse!(
+                nick: nickname >>
                 user: opt!(
-                    chain!(
-                        tag!(b"!") ~
-                        user: user,
-                        || user
+                    do_parse!(
+                        tag!(b"!") >>
+                        user: user >>
+                        (user)
                     )
-                ) ~
+                ) >>
                 host: opt!(
-                    chain!(
-                        tag!(b"@") ~
-                        host: host,
-                        || host
+                    do_parse!(
+                        tag!(b"@") >>
+                        host: host >>
+                        (host)
                     )
-                ) ~
-                tag!(b" "),
-                || Prefix::User {
+                ) >>
+                tag!(b" ") >>
+                (Prefix::User {
                     nick: nick,
                     user: user,
                     host: host,
-                }
+                })
             )
-        ),
-        || prefix
+        ) >>
+        (prefix)
     )
 );
 
@@ -671,35 +671,35 @@ named!(command<Command>,
 );
 
 named!(params<Vec<&[u8]> >,
-    chain!(
+    do_parse!(
         params: opt!(
-            chain!(
-                tag!(b" ") ~
-                params: separated_nonempty_list!(tag!(b" "), middle),
-                || params
+            do_parse!(
+                tag!(b" ") >>
+                params: separated_nonempty_list!(tag!(b" "), middle) >>
+                (params)
             )
-        ) ~
+        ) >>
         trailing: opt!(
-            chain!(
-                tag!(b" :") ~
-                trailing: trailing,
-                || trailing
+            do_parse!(
+                tag!(b" :") >>
+                trailing: trailing >>
+                (trailing)
             )
-        ),
-        || {
+        ) >>
+        ({
             let mut params = params.unwrap_or_else(Vec::new);
             params.extend(trailing);
             params
-        }
+        })
     )
 );
 
 named!(middle<&[u8]>,
     recognize!(
-        chain!(
-            is_not!(&b"\0\r\n :"[..]) ~
-            opt!(is_not!(&b"\0\r\n "[..])),
-            || ()
+        do_parse!(
+            is_not!(&b"\0\r\n :"[..]) >>
+            opt!(is_not!(&b"\0\r\n "[..])) >>
+            ()
         )
     )
 );
@@ -709,20 +709,18 @@ named!(trailing<&[u8]>,
 );
 
 named_attr!(#[doc="Parse an IRC message."], pub message<Message>,
-    chain!(
-        tags: opt!(tags) ~
-        prefix: opt!(prefix) ~
-        command: command ~
-        params: params ~
-        tag!(b"\r\n"),
-        || {
-            Message {
-                tags: tags.unwrap_or_else(Vec::new),
-                prefix: prefix.unwrap_or(Prefix::Implicit),
-                command: command,
-                params: params,
-            }
-        }
+    do_parse!(
+        tags: opt!(tags) >>
+        prefix: opt!(prefix) >>
+        command: command >>
+        params: params >>
+        tag!(b"\r\n") >>
+        (Message {
+            tags: tags.unwrap_or_else(Vec::new),
+            prefix: prefix.unwrap_or(Prefix::Implicit),
+            command: command,
+            params: params,
+        })
     )
 );
 
